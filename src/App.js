@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
-import { API, Storage } from 'aws-amplify';
+import { API, Auth, Storage, graphqlOperation } from 'aws-amplify';
 import { withAuthenticator, AmplifySignOut } from '@aws-amplify/ui-react';
 import { listNotes } from './graphql/queries';
 import { createNote as createNoteMutation, deleteNote as deleteNoteMutation } from './graphql/mutations';
@@ -10,13 +10,21 @@ const initialFormState = { name: '', description: '' };
 function App() {
   const [notes, setNotes] = useState([]);
   const [formData, setFormData] = useState(initialFormState);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    fetchNotes()
+    fetchNotes();
   }, []);
 
   async function fetchNotes() {
-    const apiData = await API.graphql({ query: listNotes });
+    const userData = await Auth.currentUserInfo();
+    console.log(userData);
+    setUser(userData.id);
+    const apiData = await API.graphql(
+      graphqlOperation(listNotes, {
+        filter: { user: { eq: userData.id } }
+      })
+    );
     const notesFromAPI = apiData.data.listNotes.items;
     await Promise.all(notesFromAPI.map(async note => {
       if (note.image) {
@@ -25,12 +33,13 @@ function App() {
       }
       return note;
     }));
+    console.log(apiData.data.listNotes.items);
     setNotes(apiData.data.listNotes.items);
   }
 
   async function createNote() {
-    if (!formData.name || !formData.description) return;
-    await API.graphql({ query: createNoteMutation, variables: { input: formData } });
+    if (!formData.name || !formData.description || !user) return;
+    await API.graphql({ query: createNoteMutation, variables: { input: { ...formData, 'user': user } } });
     if (formData.image) {
       const image = await Storage.get(formData.image);
       formData.image = image;
